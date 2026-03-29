@@ -1,2 +1,2 @@
 print("Hello, world!")
-print("second")
+print("3")
