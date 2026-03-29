@@ -1,0 +1,11 @@
+actions-runner/_diag/
+actions-runner/_work/
+actions-runner/externals/
+actions-runner/bin/
+actions-runner/*.tar.gz
+actions-runner/.credentials
+actions-runner/.credentials_rsaparams
+actions-runner/.env
+actions-runner/.path
+actions-runner/.runner
+actions-runner/.service
