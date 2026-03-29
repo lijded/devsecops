@@ -89,7 +89,7 @@ jobs:
       - name: уведомление в тг
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
         run: |
           JOB_STATUS="${{ needs.sonar-analysis.result }}"
 
