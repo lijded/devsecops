@@ -1,0 +1,115 @@
+name: dev-pr-merge-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  sonar-analysis:
+    runs-on: [self-hosted, linux, x64]
+    if: github.event.pull_request.merged == true
+
+    steps:
+      - name: Получение всех коммитов ветки для полной истории анализа
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Запуск сканера сонара
+        id: sonar_scan
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+
+      - name: Получение информации о последнем релизе
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_RELEASE=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")
+
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >> "$GITHUB_ENV"
+
+      - name: артефакт с отчетом по сонару
+        if: always()
+        run: |
+          mkdir -p artifacts
+
+          SONAR_RESULT="${{ steps.sonar_scan.outcome }}"
+
+          cat <<EOF > artifacts/sonar-summary.txt
+          Sonar result: ${SONAR_RESULT}
+          Source branch: ${{ github.event.pull_request.head.ref }}
+          Target branch: ${{ github.event.pull_request.base.ref }}
+          Latest release: ${LATEST_RELEASE}
+          Merged at: ${{ github.event.pull_request.merged_at }}
+          PR link: ${{ github.event.pull_request.html_url }}
+          Repo: ${{ github.server_url }}/${{ github.repository }}
+          EOF
+
+      - name: сохранение артефакта
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-summary
+          path: artifacts/sonar-summary.txt
+          retention-days: 7
+
+  telegram-notify:
+    needs: sonar-analysis
+    runs-on: [self-hosted, linux, x64]
+    if: >
+      always() &&
+      github.event.pull_request.merged == true
+
+    steps:
+      - name: получение последнего релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_RELEASE=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
+            | jq -r '.name // .tag_name // "нет релизов"')
+
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >> "$GITHUB_ENV"
+
+      - name: уведомление в тг
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          JOB_STATUS="${{ needs.sonar-analysis.result }}"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATUS_ICON="SUCCESS"
+          else
+            STATUS_ICON="FAILED"
+          fi
+
+          MESSAGE=$(cat <<EOF
+          <b>${STATUS_ICON} Merge</b>
+          • Ветка: <code>${{ github.event.pull_request.head.ref }}</code>
+          • Релиз: <code>${LATEST_RELEASE}</code>
+          • Время: <code>${{ github.event.pull_request.merged_at }}</code>
+          • <a href="${{ github.event.pull_request.html_url }}">PR</a>
+          • <a href="${{ github.server_url }}/${{ github.repository }}">Repo</a>
+          EOF
+          )
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="HTML" \
+            --data-urlencode "text=${MESSAGE}"
