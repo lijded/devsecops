@@ -1,4 +1,4 @@
-name: dev-pr-merge-check
+name: devsecops
 
 on:
   pull_request:
@@ -27,6 +27,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
+            -Dsonar.projectKey=your_project_key
             -Dsonar.qualitygate.wait=true
 
       - name: Получение информации о последнем релизе
@@ -37,7 +38,8 @@ jobs:
           LATEST_RELEASE=$(curl -s \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
+            | jq -r '.name // .tag_name // "нет релизов"')
 
           echo "LATEST_RELEASE=$LATEST_RELEASE" >> "$GITHUB_ENV"
 
